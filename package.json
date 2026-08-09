@@ -1,19 +1,14 @@
 {
   "name": "ai-interviewer",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AI Interviewer root app",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm run build --prefix frontend",
+    "start": "npm run build --prefix frontend && npm run start --prefix backend",
+    "dev": "npm run build --prefix frontend && npm run dev --prefix backend"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@google/genai": "^2.16.0",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "multer": "^2.2.0",
-    "pdf-parse": "^2.4.5"
-  }
+  "license": "ISC"
 }

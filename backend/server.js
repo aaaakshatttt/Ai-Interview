@@ -2,23 +2,87 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import fs from "fs";
+import fsp from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 import { PDFParse } from "pdf-parse";
+import mammoth from "mammoth";
+import textract from "textract";
 
 const app = express();
 
 const PORT = 5000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.join(__dirname, "..", "frontend", "dist");
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(frontendDistPath));
 
 const upload = multer({
   dest: "uploads/",
 });
 
-app.get("/", (req, res) => {
-  res.json({
-    message: "AI Interviewer Backend is running 🚀",
+const supportedExtensions = new Set([
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".txt",
+  ".rtf",
+]);
+
+const extractTextWithTextract = (filePath) =>
+  new Promise((resolve, reject) => {
+    textract.fromFileWithPath(filePath, (error, text) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(text || "");
+    });
   });
+
+const extractResumeText = async (filePath, originalName) => {
+  const extension = path.extname(originalName).toLowerCase();
+
+  if (!supportedExtensions.has(extension)) {
+    throw new Error(
+      "Unsupported file type. Please upload a PDF, DOC, DOCX, TXT, or RTF file."
+    );
+  }
+
+  const fileBuffer = await fsp.readFile(filePath);
+
+  if (extension === ".pdf") {
+    const parser = new PDFParse({
+      data: fileBuffer,
+    });
+
+    const result = await parser.getText();
+    await parser.destroy();
+
+    return result.text;
+  }
+
+  if (extension === ".docx") {
+    const result = await mammoth.extractRawText({
+      buffer: fileBuffer,
+    });
+
+    return result.value;
+  }
+
+  if (extension === ".txt" || extension === ".rtf" || extension === ".doc") {
+    return extractTextWithTextract(filePath);
+  }
+
+  throw new Error("Unsupported file type.");
+};
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(frontendDistPath, "index.html"));
 });
 
 app.post("/api/upload-resume", upload.single("resume"), async (req, res) => {
@@ -31,17 +95,7 @@ app.post("/api/upload-resume", upload.single("resume"), async (req, res) => {
 
     const filePath = req.file.path;
 
-    const fileBuffer = fs.readFileSync(filePath);
-
-    const parser = new PDFParse({
-      data: fileBuffer,
-    });
-
-    const result = await parser.getText();
-
-    const resumeText = result.text;
-
-    await parser.destroy();
+    const resumeText = await extractResumeText(filePath, req.file.originalname);
 
     fs.unlinkSync(filePath);
 
@@ -55,9 +109,14 @@ app.post("/api/upload-resume", upload.single("resume"), async (req, res) => {
   } catch (error) {
     console.error("Resume processing error:", error);
 
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
     res.status(500).json({
       success: false,
-      message: "Failed to process resume",
+      message:
+        error.message || "Failed to process resume",
     });
   }
 });
